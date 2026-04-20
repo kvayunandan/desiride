@@ -1,30 +1,28 @@
 document.addEventListener('DOMContentLoaded', function () {
-    var STORAGE_KEY = 'desiride_data';
+    var STORAGE_KEY = 'desiride_airport';
     var NEARBY_CITIES = {
         'Plano': ['Frisco', 'Richardson', 'Allen', 'McKinney', 'Carrollton'],
         'Frisco': ['Plano', 'McKinney', 'Allen', 'Lewisville', 'The Colony'],
         'Richardson': ['Plano', 'Garland', 'Dallas', 'Carrollton', 'Allen'],
-        'Irving': ['Dallas', 'Carrollton', 'Coppell', 'Arlington', 'Las Colinas'],
+        'Irving': ['Dallas', 'Carrollton', 'Coppell', 'Arlington'],
         'Denton': ['Lewisville', 'Corinth', 'Lake Dallas', 'Flower Mound'],
-        'McKinney': ['Allen', 'Frisco', 'Plano', 'Princeton'],
+        'McKinney': ['Allen', 'Frisco', 'Plano'],
         'Allen': ['Plano', 'McKinney', 'Frisco', 'Richardson'],
         'Carrollton': ['Plano', 'Richardson', 'Irving', 'Lewisville', 'Coppell'],
         'Lewisville': ['Denton', 'Flower Mound', 'Carrollton', 'The Colony', 'Frisco'],
-        'DFW Airport': ['Irving', 'Grapevine', 'Coppell', 'Euless'],
-        'Love Field': ['Dallas', 'Irving', 'Richardson'],
         'Flower Mound': ['Lewisville', 'Denton', 'Carrollton'],
         'Coppell': ['Irving', 'Carrollton', 'Lewisville'],
         'Arlington': ['Irving', 'Dallas', 'Fort Worth'],
         'Garland': ['Richardson', 'Dallas', 'Plano'],
-        'Dallas': ['Richardson', 'Irving', 'Garland', 'Arlington']
+        'Dallas': ['Richardson', 'Irving', 'Garland', 'Arlington'],
+        'Fort Worth': ['Arlington', 'Irving']
     };
 
     var state = loadState();
 
     function loadState() {
         try {
-            var data = JSON.parse(localStorage.getItem(STORAGE_KEY));
-            return data || { rides: [], matches: [], dismissed: [] };
+            return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { rides: [], matches: [], dismissed: [] };
         } catch (e) {
             return { rides: [], matches: [], dismissed: [] };
         }
@@ -47,50 +45,46 @@ document.addEventListener('DOMContentLoaded', function () {
         return false;
     }
 
-    function isTimeClose(time1, time2, hours) {
+    function isTimeClose(time1, time2) {
         if (!time1 || !time2) return true;
         var parts1 = time1.split(':');
         var parts2 = time2.split(':');
         var mins1 = parseInt(parts1[0]) * 60 + parseInt(parts1[1]);
         var mins2 = parseInt(parts2[0]) * 60 + parseInt(parts2[1]);
-        return Math.abs(mins1 - mins2) <= (hours || 2) * 60;
+        return Math.abs(mins1 - mins2) <= 120;
     }
 
+    // Match: offer ↔ need, same direction, same airport, nearby area, same date, close time
     function findMatches(newRide) {
         var matches = [];
-        var oppositeType = newRide.type === 'offer' ? 'need' : 'offer';
-
         for (var i = 0; i < state.rides.length; i++) {
             var ride = state.rides[i];
             if (ride.id === newRide.id) continue;
-            if (ride.type !== oppositeType) continue;
+            if (ride.direction !== newRide.direction) continue;
+            if (ride.type === newRide.type) continue; // need offer vs need
+            if (ride.airport !== newRide.airport) continue;
+            if (ride.date !== newRide.date) continue;
+            if (!areCitiesNearby(ride.area, newRide.area)) continue;
+            if (!isTimeClose(ride.time, newRide.time)) continue;
 
-            var fromMatch = areCitiesNearby(newRide.from, ride.from);
-            var toMatch = areCitiesNearby(newRide.to, ride.to);
-            var dateMatch = newRide.date === ride.date;
-            var timeMatch = isTimeClose(newRide.time, ride.time, 2);
+            var matchId = [newRide.id, ride.id].sort().join('-');
+            var isDismissed = state.dismissed.indexOf(matchId) !== -1;
+            var alreadyExists = false;
+            for (var j = 0; j < state.matches.length; j++) {
+                if (state.matches[j].id === matchId) { alreadyExists = true; break; }
+            }
 
-            if (fromMatch && toMatch && dateMatch && timeMatch) {
-                var matchId = [newRide.id, ride.id].sort().join('-');
-                var isDismissed = state.dismissed.indexOf(matchId) !== -1;
-                var alreadyExists = false;
-                for (var j = 0; j < state.matches.length; j++) {
-                    if (state.matches[j].id === matchId) {
-                        alreadyExists = true;
-                        break;
-                    }
-                }
-                if (!isDismissed && !alreadyExists) {
-                    var exact = newRide.from.toLowerCase() === ride.from.toLowerCase()
-                        && newRide.to.toLowerCase() === ride.to.toLowerCase();
-                    matches.push({
-                        id: matchId,
-                        offer: newRide.type === 'offer' ? newRide : ride,
-                        need: newRide.type === 'need' ? newRide : ride,
-                        score: exact ? 'exact' : 'nearby',
-                        created: new Date().toISOString()
-                    });
-                }
+            if (!isDismissed && !alreadyExists) {
+                var offer = newRide.type === 'offer' ? newRide : ride;
+                var need = newRide.type === 'offer' ? ride : newRide;
+                var exact = newRide.area.toLowerCase() === ride.area.toLowerCase();
+                matches.push({
+                    id: matchId,
+                    offer: offer,
+                    need: need,
+                    score: exact ? 'exact' : 'nearby',
+                    created: new Date().toISOString()
+                });
             }
         }
         return matches;
@@ -99,10 +93,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function formatDate(dateStr) {
         if (!dateStr) return '';
         var d = new Date(dateStr + 'T00:00:00');
-        var today = new Date();
-        today.setHours(0,0,0,0);
-        var tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        var today = new Date(); today.setHours(0,0,0,0);
+        var tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
         if (d.getTime() === today.getTime()) return 'Today';
         if (d.getTime() === tomorrow.getTime()) return 'Tomorrow';
         return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -111,8 +103,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function formatTime(timeStr) {
         if (!timeStr) return '';
         var parts = timeStr.split(':');
-        var h = parseInt(parts[0]);
-        var m = parts[1];
+        var h = parseInt(parts[0]); var m = parts[1];
         var ampm = h >= 12 ? 'PM' : 'AM';
         h = h % 12 || 12;
         return h + ':' + m + ' ' + ampm;
@@ -124,21 +115,32 @@ document.addEventListener('DOMContentLoaded', function () {
         return 'https://wa.me/' + cleaned + '?text=' + encodeURIComponent(message);
     }
 
+    function getDirectionLabel(ride) {
+        if (ride.direction === 'to') return ride.area + ' → ' + ride.airport;
+        return ride.airport + ' → ' + ride.area;
+    }
+
+    function getTypeLabel(ride) {
+        if (ride.direction === 'to' && ride.type === 'offer') return 'Driving to Airport';
+        if (ride.direction === 'to' && ride.type === 'need') return 'Need Ride to Airport';
+        if (ride.direction === 'from' && ride.type === 'offer') return 'Driving from Airport';
+        return 'Need Ride from Airport';
+    }
+
     function renderRideCard(ride, showActions) {
         var typeClass = ride.type === 'offer' ? 'offer' : 'need';
-        var typeLabel = ride.type === 'offer' ? 'Offering Ride' : 'Need Ride';
-        var seatsText = ride.seats ? ' · ' + ride.seats + ' seat' + (ride.seats > 1 ? 's' : '') : '';
+        var dirIcon = ride.direction === 'to' ? '✈️' : '🏠';
+        var seatsText = ride.seats ? ride.seats + ' seat' + (parseInt(ride.seats) > 1 ? 's' : '') : '';
 
         var html = '<div class="ride-card ' + typeClass + '" data-id="' + ride.id + '">';
         html += '<div class="ride-header">';
-        html += '<span class="ride-type ' + typeClass + '">' + typeLabel + '</span>';
-        html += '<span class="ride-source">' + (ride.source || 'Direct') + '</span>';
+        html += '<span class="ride-type ' + typeClass + '">' + getTypeLabel(ride) + '</span>';
         html += '</div>';
-        html += '<div class="ride-route">' + ride.from + '<span class="arrow"> → </span>' + ride.to + '</div>';
+        html += '<div class="ride-route">' + dirIcon + ' ' + getDirectionLabel(ride) + '</div>';
         html += '<div class="ride-details">';
         html += '<span>📅 ' + formatDate(ride.date) + '</span>';
         html += '<span>⏰ ' + formatTime(ride.time) + '</span>';
-        html += '<span>💺' + seatsText + '</span>';
+        html += '<span>💺 ' + seatsText + '</span>';
         html += '</div>';
         html += '<div class="ride-person">';
         html += '<span class="ride-person-info">👤 ' + ride.name + '</span>';
@@ -146,11 +148,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (showActions) {
             var msg = 'Hi ' + ride.name + '! Saw your ride on DesiRide — '
-                + ride.from + ' → ' + ride.to + ', '
+                + getDirectionLabel(ride) + ', '
                 + formatDate(ride.date) + ' ' + formatTime(ride.time) + '. Interested!';
             html += '<div class="ride-actions">';
             html += '<a href="' + getWhatsAppLink(ride.phone, msg) + '" target="_blank" class="btn-action whatsapp">📱 Connect on WhatsApp</a>';
-            html += '<button class="btn-action delete" onclick="deleteRide(\'' + ride.id + '\')">🗑️ Delete</button>';
+            html += '<button class="btn-action delete" onclick="deleteRide(\'' + ride.id + '\')">🗑️</button>';
             html += '</div>';
         }
 
@@ -159,27 +161,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderMatchCard(match) {
-        var driverMsg = 'Hi ' + match.offer.name + '! Found a rider for your '
-            + match.offer.from + ' → ' + match.offer.to + ' ride on '
-            + formatDate(match.offer.date) + '. '
-            + match.need.name + ' needs a ride. Contact them at ' + match.need.phone;
-
-        var riderMsg = 'Hi ' + match.need.name + '! Found a ride for you! '
-            + match.offer.name + ' is going '
-            + match.offer.from + ' → ' + match.offer.to + ' on '
-            + formatDate(match.offer.date) + ' at ' + formatTime(match.offer.time)
-            + '. Contact: ' + match.offer.phone;
-
         var badge = match.score === 'exact'
-            ? '<span style="color: var(--green);">Exact route match!</span>'
-            : '<span style="color: var(--orange);">Nearby cities match</span>';
-
-        var crossGroup = match.offer.source !== match.need.source
-            ? ' <span style="color: var(--primary); font-size: 0.8rem;">Cross-group: ' + match.offer.source + ' + ' + match.need.source + '</span>'
-            : '';
+            ? '<span style="color: var(--green);">Same area!</span>'
+            : '<span style="color: var(--orange);">Nearby areas</span>';
 
         var html = '<div class="match-card" data-match="' + match.id + '">';
-        html += '<div class="match-header">🎉 Ride Found! ' + badge + crossGroup + '</div>';
+        html += '<div class="match-header">🎉 Ride Found! ' + badge + '</div>';
         html += '<div class="match-pair">';
         html += renderRideCard(match.offer, true);
         html += '<div class="match-arrow">⇄</div>';
@@ -193,8 +180,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function render() {
-        var offers = state.rides.filter(function (r) { return r.type === 'offer'; });
-        var needs = state.rides.filter(function (r) { return r.type === 'need'; });
+        var toAirport = state.rides.filter(function (r) { return r.direction === 'to'; });
+        var fromAirport = state.rides.filter(function (r) { return r.direction === 'from'; });
 
         document.getElementById('total-rides').textContent = state.rides.length;
         document.getElementById('total-rides-found').textContent = state.matches.length;
@@ -207,21 +194,21 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('rides-found-list').innerHTML = matchesHtml;
         document.getElementById('no-rides-found').style.display = state.matches.length ? 'none' : 'block';
 
-        // Offers
-        var offersHtml = '';
-        for (var i = offers.length - 1; i >= 0; i--) {
-            offersHtml += renderRideCard(offers[i], true);
+        // To Airport
+        var toHtml = '';
+        for (var i = toAirport.length - 1; i >= 0; i--) {
+            toHtml += renderRideCard(toAirport[i], true);
         }
-        document.getElementById('offers-list').innerHTML = offersHtml;
-        document.getElementById('no-offers').style.display = offers.length ? 'none' : 'block';
+        document.getElementById('to-airport-list').innerHTML = toHtml;
+        document.getElementById('no-to-airport').style.display = toAirport.length ? 'none' : 'block';
 
-        // Needs
-        var needsHtml = '';
-        for (var i = needs.length - 1; i >= 0; i--) {
-            needsHtml += renderRideCard(needs[i], true);
+        // From Airport
+        var fromHtml = '';
+        for (var i = fromAirport.length - 1; i >= 0; i--) {
+            fromHtml += renderRideCard(fromAirport[i], true);
         }
-        document.getElementById('needs-list').innerHTML = needsHtml;
-        document.getElementById('no-needs').style.display = needs.length ? 'none' : 'block';
+        document.getElementById('from-airport-list').innerHTML = fromHtml;
+        document.getElementById('no-from-airport').style.display = fromAirport.length ? 'none' : 'block';
 
         // All
         var allHtml = '';
@@ -236,61 +223,78 @@ document.addEventListener('DOMContentLoaded', function () {
         var toast = document.getElementById('toast');
         toast.textContent = message;
         toast.classList.remove('hidden');
-        setTimeout(function () {
-            toast.classList.add('hidden');
-        }, 3000);
+        setTimeout(function () { toast.classList.add('hidden'); }, 3000);
     }
 
-    // Form handling
+    // Form state
+    var currentDirection = 'to';
     var currentType = 'offer';
-    var selectedFrom = '';
-    var selectedTo = '';
-    var selectedSource = '';
-    var selectedSeats = '';
+    var selectedArea = '';
+    var selectedAirport = 'DFW Airport';
+    var selectedSeats = '1';
 
-    // Toggle offer/need
+    function updateLabels() {
+        var areaLabel = document.getElementById('area-label');
+        var submitBtn = document.getElementById('submit-btn');
+
+        if (currentDirection === 'to') {
+            areaLabel.textContent = currentType === 'offer' ? 'Picking up from (your area)' : 'Pickup from (your area)';
+            submitBtn.textContent = currentType === 'offer' ? 'Post — I\'m Driving to Airport' : 'Post — I Need a Ride to Airport';
+        } else {
+            areaLabel.textContent = currentType === 'offer' ? 'Dropping off to (your area)' : 'Drop off to (your area)';
+            submitBtn.textContent = currentType === 'offer' ? 'Post — I\'m Driving from Airport' : 'Post — I Need a Ride from Airport';
+        }
+    }
+
+    // Toggle buttons
     document.querySelectorAll('.toggle').forEach(function (btn) {
         btn.addEventListener('click', function () {
             document.querySelectorAll('.toggle').forEach(function (b) { b.classList.remove('active'); });
             this.classList.add('active');
-            currentType = this.getAttribute('data-type');
+            var val = this.getAttribute('data-type');
+            if (val === 'to-offer') { currentDirection = 'to'; currentType = 'offer'; }
+            if (val === 'to-need') { currentDirection = 'to'; currentType = 'need'; }
+            if (val === 'from-offer') { currentDirection = 'from'; currentType = 'offer'; }
+            if (val === 'from-need') { currentDirection = 'from'; currentType = 'need'; }
+            updateLabels();
         });
     });
 
-    // Chip selection helper
-    function setupChips(containerSelector, inputId, setter) {
-        document.querySelectorAll(containerSelector).forEach(function (chip) {
-            chip.addEventListener('click', function () {
-                var siblings = this.parentElement.querySelectorAll('.chip');
-                siblings.forEach(function (s) { s.classList.remove('selected'); });
-                this.classList.add('selected');
-                var value = this.getAttribute('data-value');
-                document.getElementById(inputId).value = value;
-                setter(value);
-            });
+    // Area chips
+    document.querySelectorAll('#area-picks .chip').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+            document.querySelectorAll('#area-picks .chip').forEach(function (c) { c.classList.remove('selected'); });
+            this.classList.add('selected');
+            selectedArea = this.getAttribute('data-value');
+            document.getElementById('area').value = selectedArea;
         });
-    }
+    });
 
-    setupChips('#from-picks .chip', 'from', function (v) { selectedFrom = v; });
-    setupChips('#to-picks .chip', 'to', function (v) { selectedTo = v; });
-    setupChips('.seat-chip', 'from', function (v) { selectedSeats = v; });
-    setupChips('.price-chip', 'from', function (v) { selectedPrice = v; });
+    // Airport chips
+    document.querySelectorAll('.airport-chip').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+            document.querySelectorAll('.airport-chip').forEach(function (c) { c.classList.remove('selected'); });
+            this.classList.add('selected');
+            selectedAirport = this.getAttribute('data-value');
+        });
+    });
 
     // Seat chips
     document.querySelectorAll('.seat-chip').forEach(function (chip) {
         chip.addEventListener('click', function () {
-            document.querySelectorAll('.seat-chip').forEach(function (s) { s.classList.remove('selected'); });
+            document.querySelectorAll('.seat-chip').forEach(function (c) { c.classList.remove('selected'); });
             this.classList.add('selected');
             selectedSeats = this.getAttribute('data-value');
         });
     });
 
-    // Set default date to today
+    // Default date
     var today = new Date();
-    var todayStr = today.getFullYear() + '-'
+    document.getElementById('date').value = today.getFullYear() + '-'
         + String(today.getMonth() + 1).padStart(2, '0') + '-'
         + String(today.getDate()).padStart(2, '0');
-    document.getElementById('date').value = todayStr;
+
+    updateLabels();
 
     // Form submit
     document.getElementById('ride-form').addEventListener('submit', function (e) {
@@ -299,14 +303,14 @@ document.addEventListener('DOMContentLoaded', function () {
         var ride = {
             id: generateId(),
             type: currentType,
-            from: document.getElementById('from').value.trim(),
-            to: document.getElementById('to').value.trim(),
+            direction: currentDirection,
+            area: document.getElementById('area').value.trim(),
+            airport: selectedAirport,
             date: document.getElementById('date').value,
             time: document.getElementById('time').value,
             name: document.getElementById('name').value.trim(),
             phone: document.getElementById('phone').value.trim(),
-            source: document.getElementById('source').value.trim() || 'Direct',
-            seats: selectedSeats || '1',
+            seats: selectedSeats,
             created: new Date().toISOString()
         };
 
@@ -324,21 +328,17 @@ document.addEventListener('DOMContentLoaded', function () {
             showToast('🎉 ' + newMatches.length + ' ride' + (newMatches.length > 1 ? 's' : '') + ' found!');
             document.querySelector('[data-tab="rides-found"]').click();
         } else {
-            showToast('✅ Ride added! No matches yet.');
+            showToast('✅ Ride posted!');
+            document.querySelector('[data-tab="all"]').click();
         }
 
-        // Reset form partially
-        document.getElementById('from').value = '';
-        document.getElementById('to').value = '';
+        document.getElementById('area').value = '';
         document.getElementById('time').value = '';
         document.getElementById('name').value = '';
         document.getElementById('phone').value = '';
-        selectedFrom = '';
-        selectedTo = '';
-        selectedSeats = '';
-        document.querySelectorAll('#from-picks .chip, #to-picks .chip, .seat-chip').forEach(function (c) {
-            c.classList.remove('selected');
-        });
+        selectedArea = '';
+        selectedSeats = '1';
+        document.querySelectorAll('#area-picks .chip, .seat-chip').forEach(function (c) { c.classList.remove('selected'); });
     });
 
     // Tabs
@@ -347,41 +347,22 @@ document.addEventListener('DOMContentLoaded', function () {
             document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
             document.querySelectorAll('.tab-content').forEach(function (c) { c.classList.remove('active'); });
             this.classList.add('active');
-            var target = this.getAttribute('data-tab');
-            document.getElementById(target + '-tab').classList.add('active');
+            document.getElementById(this.getAttribute('data-tab') + '-tab').classList.add('active');
         });
     });
 
-    // Filter All Rides tab
-    window.filterAll = function (type) {
-        var filtered = state.rides;
-        if (type !== 'all') {
-            filtered = state.rides.filter(function (r) { return r.type === type; });
-        }
-        var html = '';
-        for (var i = filtered.length - 1; i >= 0; i--) {
-            html += renderRideCard(filtered[i], true);
-        }
-        document.getElementById('all-list').innerHTML = html;
-        document.getElementById('no-all').style.display = filtered.length ? 'none' : 'block';
-    };
-
-    // Global functions for buttons
+    // Global functions
     window.deleteRide = function (id) {
         state.rides = state.rides.filter(function (r) { return r.id !== id; });
-        state.matches = state.matches.filter(function (m) {
-            return m.offer.id !== id && m.need.id !== id;
-        });
-        saveState();
-        render();
+        state.matches = state.matches.filter(function (m) { return m.offer.id !== id && m.need.id !== id; });
+        saveState(); render();
         showToast('Ride deleted');
     };
 
     window.dismissMatch = function (matchId) {
         state.dismissed.push(matchId);
         state.matches = state.matches.filter(function (m) { return m.id !== matchId; });
-        saveState();
-        render();
+        saveState(); render();
         showToast('Match dismissed');
     };
 

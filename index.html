@@ -3,36 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DesiRide — Dashboard</title>
+    <title>DesiRide — Airport Rides, DFW</title>
+    <meta name="description" content="Share airport rides in DFW. Going to the airport? Take someone along. Need a ride? Find someone already going.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-content">
             <div class="logo">
                 <span class="logo-car">🚕</span>
-                DesiRide <span class="tagline">Ride together. Save together.</span>
+                DesiRide <span class="tagline">Airport Rides • Ride Together • Save Together</span>
             </div>
             <div class="nav-stats">
                 <span class="stat"><span id="total-rides">0</span> rides</span>
-                <span class="stat"><span id="total-rides-found">0</span> rides found</span>
+                <span class="stat"><span id="total-rides-found">0</span> found</span>
             </div>
         </div>
     </nav>
 
     <div class="app">
+        <!-- Left: Post a Ride -->
         <div class="sidebar">
-            <h2>Add Ride</h2>
+            <h2>✈️ Post a Ride</h2>
+
+            <div class="toggle-group">
+                <button type="button" class="toggle active" data-type="to-offer">🟢 Driving TO Airport</button>
+                <button type="button" class="toggle" data-type="to-need">🔵 Need Ride TO Airport</button>
+            </div>
+            <div class="toggle-group">
+                <button type="button" class="toggle" data-type="from-offer">🟢 Driving FROM Airport</button>
+                <button type="button" class="toggle" data-type="from-need">🔵 Need Ride FROM Airport</button>
+            </div>
+
             <form id="ride-form">
-                <div class="toggle-group">
-                    <button type="button" class="toggle active" data-type="offer">🟢 Offering Ride</button>
-                    <button type="button" class="toggle" data-type="need">🔵 Need Ride</button>
-                </div>
-
-                <label class="label-green">From</label>
-                <div class="location-picks" id="from-picks">
+                <label class="label-green" id="area-label">Picking up from (your area)</label>
+                <div class="location-picks" id="area-picks">
                     <button type="button" class="chip" data-value="Plano">Plano</button>
                     <button type="button" class="chip" data-value="Frisco">Frisco</button>
                     <button type="button" class="chip" data-value="Richardson">Richardson</button>
@@ -42,26 +53,20 @@
                     <button type="button" class="chip" data-value="Allen">Allen</button>
                     <button type="button" class="chip" data-value="Carrollton">Carrollton</button>
                     <button type="button" class="chip" data-value="Lewisville">Lewisville</button>
-                    <button type="button" class="chip" data-value="DFW Airport">DFW Airport</button>
-                    <button type="button" class="chip" data-value="Love Field">Love Field</button>
+                    <button type="button" class="chip" data-value="Flower Mound">Flower Mound</button>
+                    <button type="button" class="chip" data-value="Coppell">Coppell</button>
+                    <button type="button" class="chip" data-value="Arlington">Arlington</button>
+                    <button type="button" class="chip" data-value="Garland">Garland</button>
+                    <button type="button" class="chip" data-value="Fort Worth">Fort Worth</button>
+                    <button type="button" class="chip" data-value="Dallas">Dallas</button>
                 </div>
-                <input type="text" id="from" placeholder="Or type location..." required>
+                <input type="text" id="area" placeholder="Or type your area..." required>
 
-                <label class="label-green">To</label>
-                <div class="location-picks" id="to-picks">
-                    <button type="button" class="chip" data-value="DFW Airport">DFW Airport</button>
-                    <button type="button" class="chip" data-value="Love Field">Love Field</button>
-                    <button type="button" class="chip" data-value="Plano">Plano</button>
-                    <button type="button" class="chip" data-value="Frisco">Frisco</button>
-                    <button type="button" class="chip" data-value="Richardson">Richardson</button>
-                    <button type="button" class="chip" data-value="Irving">Irving</button>
-                    <button type="button" class="chip" data-value="Denton">Denton</button>
-                    <button type="button" class="chip" data-value="McKinney">McKinney</button>
-                    <button type="button" class="chip" data-value="Allen">Allen</button>
-                    <button type="button" class="chip" data-value="Carrollton">Carrollton</button>
-                    <button type="button" class="chip" data-value="Lewisville">Lewisville</button>
+                <label class="label-green">Airport</label>
+                <div class="location-picks">
+                    <button type="button" class="chip airport-chip selected" data-value="DFW Airport">DFW Airport</button>
+                    <button type="button" class="chip airport-chip" data-value="Love Field">Love Field</button>
                 </div>
-                <input type="text" id="to" placeholder="Or type location..." required>
 
                 <label class="label-green">When</label>
                 <div class="row">
@@ -69,56 +74,51 @@
                     <input type="time" id="time" required>
                 </div>
 
-                <label class="label-green">Person</label>
+                <label class="label-green">Your Info</label>
                 <div class="row">
-                    <input type="text" id="name" placeholder="Name" required>
-                    <input type="tel" id="phone" placeholder="Phone" required>
+                    <input type="text" id="name" placeholder="Your name" required>
+                    <input type="tel" id="phone" placeholder="WhatsApp number" required>
                 </div>
 
-                <input type="hidden" id="source" value="Direct">
-
-                <div class="row">
-                    <div>
-                        <label class="label-green">Seats</label>
-                        <div class="num-picks">
-                            <button type="button" class="chip seat-chip" data-value="1">1</button>
-                            <button type="button" class="chip seat-chip" data-value="2">2</button>
-                            <button type="button" class="chip seat-chip" data-value="3">3</button>
-                            <button type="button" class="chip seat-chip" data-value="4">4</button>
-                        </div>
-                    </div>
+                <label class="label-green">Seats</label>
+                <div class="num-picks">
+                    <button type="button" class="chip seat-chip" data-value="1">1</button>
+                    <button type="button" class="chip seat-chip" data-value="2">2</button>
+                    <button type="button" class="chip seat-chip" data-value="3">3</button>
+                    <button type="button" class="chip seat-chip" data-value="4">4</button>
                 </div>
 
-                <button type="submit" class="btn-submit">Add Ride</button>
+                <button type="submit" class="btn-submit" id="submit-btn">Post Ride</button>
             </form>
         </div>
 
+        <!-- Right: Rides Feed -->
         <div class="main">
             <div class="tabs">
-                <button class="tab active" data-tab="rides-found">🎉 Rides Found</button>
-                <button class="tab" data-tab="offers">🟢 Offering Rides</button>
-                <button class="tab" data-tab="needs">🔵 Need Ride</button>
-                <button class="tab" data-tab="all">All Rides</button>
+                <button class="tab active" data-tab="all">All Rides</button>
+                <button class="tab" data-tab="to-airport">✈️ To Airport</button>
+                <button class="tab" data-tab="from-airport">🏠 From Airport</button>
+                <button class="tab" data-tab="rides-found">🎉 Rides Found</button>
             </div>
 
-            <div id="rides-found-tab" class="tab-content active">
+            <div id="rides-found-tab" class="tab-content">
                 <div id="rides-found-list" class="rides-list"></div>
-                <div id="no-rides-found" class="empty-state">No rides found yet. Add rides to find a match!</div>
+                <div id="no-rides-found" class="empty-state">No rides found yet. Post a ride to find a match!</div>
             </div>
 
-            <div id="offers-tab" class="tab-content">
-                <div id="offers-list" class="rides-list"></div>
-                <div id="no-offers" class="empty-state">No ride offers yet.</div>
+            <div id="to-airport-tab" class="tab-content">
+                <div id="to-airport-list" class="rides-list"></div>
+                <div id="no-to-airport" class="empty-state">No rides to airport yet.</div>
             </div>
 
-            <div id="needs-tab" class="tab-content">
-                <div id="needs-list" class="rides-list"></div>
-                <div id="no-needs" class="empty-state">No ride requests yet.</div>
+            <div id="from-airport-tab" class="tab-content">
+                <div id="from-airport-list" class="rides-list"></div>
+                <div id="no-from-airport" class="empty-state">No rides from airport yet.</div>
             </div>
 
-            <div id="all-tab" class="tab-content">
+            <div id="all-tab" class="tab-content active">
                 <div id="all-list" class="rides-list"></div>
-                <div id="no-all" class="empty-state">No rides yet.</div>
+                <div id="no-all" class="empty-state">No rides yet. Post the first ride!</div>
             </div>
         </div>
     </div>
@@ -126,5 +126,10 @@
     <div id="toast" class="toast hidden"></div>
 
     <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(function() {});
+        }
+    </script>
 </body>
 </html>
