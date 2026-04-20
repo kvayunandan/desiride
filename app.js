@@ -1,5 +1,15 @@
 document.addEventListener('DOMContentLoaded', function () {
-    var STORAGE_KEY = 'desiride_airport';
+    // Supabase config
+    var SUPABASE_URL = 'https://pqvynbhugyzlczxnizvj.supabase.co';
+    var SUPABASE_KEY = 'sb_publishable_0GR_zDW6Rw0YJNPi0Ba1qQ_6PCVtvDG';
+    var API_URL = SUPABASE_URL + '/rest/v1/rides';
+    var HEADERS = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+    };
+
     var NEARBY_CITIES = {
         'Plano': ['Frisco', 'Richardson', 'Allen', 'McKinney', 'Carrollton'],
         'Frisco': ['Plano', 'McKinney', 'Allen', 'Lewisville', 'The Colony'],
@@ -18,24 +28,54 @@ document.addEventListener('DOMContentLoaded', function () {
         'Fort Worth': ['Arlington', 'Irving']
     };
 
-    var state = loadState();
+    var state = { rides: [], matches: [], dismissed: [] };
 
-    function loadState() {
-        try {
-            return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { rides: [], matches: [], dismissed: [] };
-        } catch (e) {
-            return { rides: [], matches: [], dismissed: [] };
-        }
-    }
+    // Load dismissed from localStorage (personal preference)
+    try {
+        state.dismissed = JSON.parse(localStorage.getItem('desiride_dismissed')) || [];
+    } catch (e) { state.dismissed = []; }
 
-    function saveState() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    function saveDismissed() {
+        localStorage.setItem('desiride_dismissed', JSON.stringify(state.dismissed));
     }
 
     function generateId() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
     }
 
+    // Supabase API calls
+    function fetchRides() {
+        fetch(API_URL + '?order=created.desc', {
+            headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (rides) {
+            state.rides = rides;
+            state.matches = computeAllMatches();
+            render();
+        })
+        .catch(function (err) {
+            console.error('Failed to fetch rides:', err);
+            showToast('Failed to load rides. Check connection.');
+        });
+    }
+
+    function insertRide(ride) {
+        return fetch(API_URL, {
+            method: 'POST',
+            headers: HEADERS,
+            body: JSON.stringify(ride)
+        });
+    }
+
+    function deleteRideFromDB(id) {
+        return fetch(API_URL + '?id=eq.' + id, {
+            method: 'DELETE',
+            headers: HEADERS
+        });
+    }
+
+    // Matching
     function areCitiesNearby(city1, city2) {
         if (city1.toLowerCase() === city2.toLowerCase()) return true;
         var neighbors = NEARBY_CITIES[city1] || [];
@@ -54,30 +94,28 @@ document.addEventListener('DOMContentLoaded', function () {
         return Math.abs(mins1 - mins2) <= 120;
     }
 
-    // Match: offer ↔ need, same direction, same airport, nearby area, same date, close time
-    function findMatches(newRide) {
+    function computeAllMatches() {
         var matches = [];
+        var seen = {};
         for (var i = 0; i < state.rides.length; i++) {
-            var ride = state.rides[i];
-            if (ride.id === newRide.id) continue;
-            if (ride.direction !== newRide.direction) continue;
-            if (ride.type === newRide.type) continue; // need offer vs need
-            if (ride.airport !== newRide.airport) continue;
-            if (ride.date !== newRide.date) continue;
-            if (!areCitiesNearby(ride.area, newRide.area)) continue;
-            if (!isTimeClose(ride.time, newRide.time)) continue;
+            for (var j = i + 1; j < state.rides.length; j++) {
+                var a = state.rides[i];
+                var b = state.rides[j];
+                if (a.direction !== b.direction) continue;
+                if (a.type === b.type) continue;
+                if (a.airport !== b.airport) continue;
+                if (a.date !== b.date) continue;
+                if (!areCitiesNearby(a.area, b.area)) continue;
+                if (!isTimeClose(a.time, b.time)) continue;
 
-            var matchId = [newRide.id, ride.id].sort().join('-');
-            var isDismissed = state.dismissed.indexOf(matchId) !== -1;
-            var alreadyExists = false;
-            for (var j = 0; j < state.matches.length; j++) {
-                if (state.matches[j].id === matchId) { alreadyExists = true; break; }
-            }
+                var matchId = [a.id, b.id].sort().join('-');
+                if (seen[matchId]) continue;
+                if (state.dismissed.indexOf(matchId) !== -1) continue;
+                seen[matchId] = true;
 
-            if (!isDismissed && !alreadyExists) {
-                var offer = newRide.type === 'offer' ? newRide : ride;
-                var need = newRide.type === 'offer' ? ride : newRide;
-                var exact = newRide.area.toLowerCase() === ride.area.toLowerCase();
+                var offer = a.type === 'offer' ? a : b;
+                var need = a.type === 'offer' ? b : a;
+                var exact = a.area.toLowerCase() === b.area.toLowerCase();
                 matches.push({
                     id: matchId,
                     offer: offer,
@@ -90,6 +128,23 @@ document.addEventListener('DOMContentLoaded', function () {
         return matches;
     }
 
+    function findMatchesForRide(newRide) {
+        var count = 0;
+        for (var i = 0; i < state.rides.length; i++) {
+            var ride = state.rides[i];
+            if (ride.id === newRide.id) continue;
+            if (ride.direction !== newRide.direction) continue;
+            if (ride.type === newRide.type) continue;
+            if (ride.airport !== newRide.airport) continue;
+            if (ride.date !== newRide.date) continue;
+            if (!areCitiesNearby(ride.area, newRide.area)) continue;
+            if (!isTimeClose(ride.time, newRide.time)) continue;
+            count++;
+        }
+        return count;
+    }
+
+    // Formatting
     function formatDate(dateStr) {
         if (!dateStr) return '';
         var d = new Date(dateStr + 'T00:00:00');
@@ -127,6 +182,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return 'Need Ride from Airport';
     }
 
+    // Render
     function renderRideCard(ride, showActions) {
         var typeClass = ride.type === 'offer' ? 'offer' : 'need';
         var dirIcon = ride.direction === 'to' ? '✈️' : '🏠';
@@ -188,7 +244,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Rides Found
         var matchesHtml = '';
-        for (var i = state.matches.length - 1; i >= 0; i--) {
+        for (var i = 0; i < state.matches.length; i++) {
             matchesHtml += renderMatchCard(state.matches[i]);
         }
         document.getElementById('rides-found-list').innerHTML = matchesHtml;
@@ -196,7 +252,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // To Airport
         var toHtml = '';
-        for (var i = toAirport.length - 1; i >= 0; i--) {
+        for (var i = 0; i < toAirport.length; i++) {
             toHtml += renderRideCard(toAirport[i], true);
         }
         document.getElementById('to-airport-list').innerHTML = toHtml;
@@ -204,7 +260,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // From Airport
         var fromHtml = '';
-        for (var i = fromAirport.length - 1; i >= 0; i--) {
+        for (var i = 0; i < fromAirport.length; i++) {
             fromHtml += renderRideCard(fromAirport[i], true);
         }
         document.getElementById('from-airport-list').innerHTML = fromHtml;
@@ -212,7 +268,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // All
         var allHtml = '';
-        for (var i = state.rides.length - 1; i >= 0; i--) {
+        for (var i = 0; i < state.rides.length; i++) {
             allHtml += renderRideCard(state.rides[i], true);
         }
         document.getElementById('all-list').innerHTML = allHtml;
@@ -300,6 +356,10 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('ride-form').addEventListener('submit', function (e) {
         e.preventDefault();
 
+        var submitBtn = document.getElementById('submit-btn');
+        submitBtn.textContent = 'Posting...';
+        submitBtn.disabled = true;
+
         var ride = {
             id: generateId(),
             type: currentType,
@@ -310,28 +370,44 @@ document.addEventListener('DOMContentLoaded', function () {
             time: document.getElementById('time').value,
             name: document.getElementById('name').value.trim(),
             phone: document.getElementById('phone').value.trim(),
-            seats: selectedSeats,
-            created: new Date().toISOString()
+            seats: selectedSeats
         };
 
-        state.rides.push(ride);
+        insertRide(ride)
+            .then(function (res) {
+                if (res.ok) {
+                    // Refresh rides from DB
+                    return fetch(API_URL + '?order=created.desc', {
+                        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+                    });
+                } else {
+                    throw new Error('Failed to post');
+                }
+            })
+            .then(function (res) { return res.json(); })
+            .then(function (rides) {
+                state.rides = rides;
+                var matchCount = findMatchesForRide(ride);
+                state.matches = computeAllMatches();
+                render();
 
-        var newMatches = findMatches(ride);
-        for (var i = 0; i < newMatches.length; i++) {
-            state.matches.push(newMatches[i]);
-        }
+                if (matchCount > 0) {
+                    showToast('🎉 ' + matchCount + ' ride' + (matchCount > 1 ? 's' : '') + ' found!');
+                    document.querySelector('[data-tab="rides-found"]').click();
+                } else {
+                    showToast('✅ Ride posted!');
+                    document.querySelector('[data-tab="all"]').click();
+                }
+            })
+            .catch(function () {
+                showToast('Failed to post ride. Try again.');
+            })
+            .finally(function () {
+                submitBtn.disabled = false;
+                updateLabels();
+            });
 
-        saveState();
-        render();
-
-        if (newMatches.length > 0) {
-            showToast('🎉 ' + newMatches.length + ' ride' + (newMatches.length > 1 ? 's' : '') + ' found!');
-            document.querySelector('[data-tab="rides-found"]').click();
-        } else {
-            showToast('✅ Ride posted!');
-            document.querySelector('[data-tab="all"]').click();
-        }
-
+        // Reset form
         document.getElementById('area').value = '';
         document.getElementById('time').value = '';
         document.getElementById('name').value = '';
@@ -353,18 +429,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Global functions
     window.deleteRide = function (id) {
-        state.rides = state.rides.filter(function (r) { return r.id !== id; });
-        state.matches = state.matches.filter(function (m) { return m.offer.id !== id && m.need.id !== id; });
-        saveState(); render();
-        showToast('Ride deleted');
+        deleteRideFromDB(id).then(function () {
+            state.rides = state.rides.filter(function (r) { return r.id !== id; });
+            state.matches = computeAllMatches();
+            render();
+            showToast('Ride deleted');
+        });
     };
 
     window.dismissMatch = function (matchId) {
         state.dismissed.push(matchId);
-        state.matches = state.matches.filter(function (m) { return m.id !== matchId; });
-        saveState(); render();
+        saveDismissed();
+        state.matches = computeAllMatches();
+        render();
         showToast('Match dismissed');
     };
 
-    render();
+    // Auto-refresh every 30 seconds
+    setInterval(fetchRides, 30000);
+
+    // Initial load
+    fetchRides();
 });
